@@ -75,11 +75,13 @@ function stopGuardOf(guard, now) {
 
 /** A start or pause guard: `{ at, until }`, never longer than `longest` from its time. */
 function startGuardOf(guard, now, longest) {
-  if (!isObject(guard) || !Number.isFinite(guard.at) || guard.at > now) {
+  if (!isObject(guard) || !Number.isFinite(guard.at)) {
     return undefined;
   }
-  const until = Number.isFinite(guard.until) ? Math.min(guard.until, guard.at + longest) : now;
-  return until > now ? { at: guard.at, until } : undefined;
+  // Dated in the future (a clock that went back): kept from now, the safe side.
+  const at = Math.min(guard.at, now);
+  const until = Number.isFinite(guard.until) ? Math.min(guard.until, at + longest) : at + longest;
+  return until > now ? { at, until } : undefined;
 }
 
 /**

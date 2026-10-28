@@ -121,6 +121,13 @@ export const TIMINGS = {
   pauseGuard: 10 * 60_000,
   /** A new run: its time left grew by more than this (s) since the run seen at the stop. */
   runTolerance: 2,
+  /** A run is younger than the stop when its elapsed time is shorter than the time since the click, less this (s). */
+  runAgeMargin: 1.5,
+  /** A stop not taken: tried again every 10 s for this long, then every minute, without end. */
+  stopRetrySlowAfter: 5 * 60_000,
+  stopRetrySlow: 60_000,
+  /** The outcome of a queued command that did not leave stays in the status this long. */
+  noteLife: 30 * 60_000,
   /** Transient failures: the next reads, never sooner than the interval. */
   backoff: [30_000, 60_000, 120_000, 300_000],
   /** HTTP 429, 5xx or a busy gateway: a pause within these bounds. */

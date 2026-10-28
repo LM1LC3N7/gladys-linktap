@@ -198,7 +198,8 @@ test('a stop not taken before a restart leaves at boot, from /data only', async 
   await drive(app.boot());
   await clock.advance(100);
   assert.equal(brain.count(7, TAP1), 1);
-  assert.equal(app.data.guards[TAP1].stop.resends, 1);
+  assert.equal(app.data.guards[TAP1].stop.acked, true);
+  assert.equal(app.data.guards[TAP1].stop.resends, 0, 'a stop not taken yet is never counted');
 });
 
 test('getConfig failing in "connected": tried again without end, then the integration starts', async () => {

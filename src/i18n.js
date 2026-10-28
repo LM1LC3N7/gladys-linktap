@@ -108,29 +108,24 @@ export const T = {
       `Still watering after a stop: ${names}.`,
       `Arrosage toujours en cours après un arrêt : ${names}.`,
     ),
+  /** `reason` is a whole sentence (a refusal, or "Not sent (…)."). */
   lateOutcome: (name, kind, reason) =>
     kind === 'refused'
-      ? both(
-          `Start of ${name} refused by the gateway (${reason}).`,
-          `Démarrage de ${name} refusé par la passerelle (${reason}).`,
-        )
+      ? both(`Start of ${name}: ${reason.en}`, `Démarrage de ${name} : ${reason.fr}`)
       : kind === 'pauseNotSent'
         ? both(
-            `Pause of the plan of ${name} not sent: ${reason}`,
-            `Pause du programme de ${name} non envoyée : ${reason}`,
+            `Pause of the plan of ${name}: ${reason.en}`,
+            `Pause du programme de ${name} : ${reason.fr}`,
           )
-        : both(
-            `Start of ${name} not sent: ${reason}`,
-            `Démarrage de ${name} non envoyé : ${reason}`,
-          ),
+        : both(`Start of ${name}: ${reason.en}`, `Démarrage de ${name} : ${reason.fr}`),
   noTimerRead: both(
     'No water timer could be read (unlinked or unknown to the gateway).',
     "Aucun programmateur n'a pu être lu (non relié ou inconnu de la passerelle).",
   ),
   stopPending: (names) =>
     both(
-      `Stop not taken by the gateway yet, sent again every 10 s: ${names}.`,
-      `Arrêt pas encore pris par la passerelle, renvoyé toutes les 10 s : ${names}.`,
+      `Stop not taken by the gateway yet, sent again every 10 s (every minute after 5 minutes): ${names}.`,
+      `Arrêt pas encore pris par la passerelle, renvoyé toutes les 10 s (chaque minute après 5 minutes) : ${names}.`,
     ),
   check: {
     none: both('No address in the configuration.', "Pas d'adresse dans la configuration."),
@@ -218,7 +213,7 @@ export const ERRORS = {
   ),
   stopNotSent: (reason) =>
     both(
-      `Stop not taken yet (${reason}): Gladys sends it again every 10 s until the gateway takes it.`,
-      `Arrêt pas encore pris (${reason}) : Gladys le renvoie toutes les 10 s jusqu'à ce que la passerelle le prenne.`,
+      `Stop not taken yet (${reason}): Gladys sends it again every 10 s (every minute after 5 minutes) until the gateway takes it.`,
+      `Arrêt pas encore pris (${reason}) : Gladys le renvoie toutes les 10 s (chaque minute après 5 minutes) jusqu'à ce que la passerelle le prenne.`,
     ),
 };

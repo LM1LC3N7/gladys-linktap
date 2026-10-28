@@ -233,7 +233,7 @@ test('I5: a start answered "queued" that never leaves is told in the status', as
   await clock.advance(15 * SECOND);
   const sent = ids.filter((id) => brain.timer(id).starts.length === 1).length;
   assert.ok(sent < 5);
-  assert.match(gladys.fake.connectionStatus.message.fr, /Démarrage de .* non envoyé/);
+  assert.match(gladys.fake.connectionStatus.message.fr, /Démarrage de .* : Non envoyé/);
 });
 
 // --- m3: every timer failing is not "connected" -------------------------------

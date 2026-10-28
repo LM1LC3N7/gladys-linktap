@@ -69,12 +69,17 @@
   at once, never after a read in progress (review 1, B2).
 - Stop = protective: never held by the option, a pause, the guards, a
   missing configuration or a read in flight; sent from /data at boot when not
-  taken before; retried 250 ms later within 3 s; then every 10 s and at every
-  read reaching the gateway until taken; 3 resends at most per stop, counted
-  in /data only when they leave (review 1, B1). Only readings sent after the
+  taken before; retried 250 ms later within 3 s; then every 10 s (every
+  minute after 5 minutes) and at every read reaching the gateway, without
+  end until taken, never counted (an answer proving nothing was applied is
+  not a resend, review 2 B1). A taken stop whose same run still waters is
+  resent 3 times at most, each counted once (taken, or left unanswered). Only readings sent after the
   click decide (request numbers, review 1, I1). A resend targets only the run
-  seen at the stop: another run (`total_duration` changed or
-  `remain_duration` grew) read twice in a row lifts the guard (review 1, I2).
+  seen at the stop: another run, proven by `total_duration` changed,
+  `remain_duration` grown, or an elapsed time shorter than the time since
+  the click (only once the gateway was seen counting down), read twice in a
+  row lifts the guard. In doubt the stop wins, said in the docs (review 2,
+  I1).
   The stop guard is never lifted by time: a dry read then a watering read
   twice in a row, another run read twice in a row, a start from Gladys with
   the option (sent, or finding the timer watering), or `ret` 4/5.

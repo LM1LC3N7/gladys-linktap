@@ -134,7 +134,7 @@ test('/data: future times invalid, pause bounded, unknown keys dropped', () => {
   assert.equal(data.gateways[GW].evil, undefined);
   assert.equal(data.guards[TAP1].stop.at, now);
   assert.equal(data.guards[TAP1].stop.resends, TIMINGS.stopResends);
-  assert.equal(data.guards[TAP1].start, undefined);
+  assert.deepEqual(data.guards[TAP1].start, { at: now, until: now + TIMINGS.startGuard });
 });
 
 test('FileStore: a missing file is empty, an unreadable one is "broken", never overwritten', async (t) => {

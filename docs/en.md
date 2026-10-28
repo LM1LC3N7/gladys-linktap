@@ -110,15 +110,24 @@ parameter, command not supported).
 
 When the gateway **does not take it** (no connection, a busy gateway, an HTTP
 error such as a 404, another gateway at the address), it is tried again 250 ms
-later within its 3 s, then **every 10 s, and at every read that reaches the
-gateway, until the gateway takes it**, even during a pause and after a
-restart. Only the resends that really leave are counted: 3 at most.
+later within its 3 s, then **every 10 s (every minute after 5 minutes), and
+at every read that reaches the gateway, without end until the gateway takes
+it**, even during a pause and after a restart. These tries are never counted:
+an answer that shows nothing was applied (busy, 404) is not a resend.
 
 After a stop taken by the gateway, a read still showing **the same run**
-watering (more than 4 s after, the radio needs time) sends it again, within
-the same 3 resends. Only reads sent after the click count. A different run
-(its length changed, or its time left grew: started by the LinkTap app, the
-button or the plan) is never stopped by a resend.
+watering (more than 4 s after, the radio needs time) sends it again: 3 resends
+at most, each counted once (when the gateway takes it, or when it left without
+an answer). Only reads sent after the click count.
+
+Another run is never stopped by a resend **when Gladys can prove it is
+another one**: its length differs from the stopped run, its time left grew,
+or it is younger than the stop (its elapsed time, length minus time left, is
+shorter than the time since the click; used only once the gateway was seen
+counting the time left down). **In doubt, the stop wins**: a run of the same
+length restarted by the LinkTap app within seconds of the stop, on a gateway
+whose time left does not count down (or is not given), may be stopped by a
+resend.
 
 The watch of a stop is lifted only by:
 

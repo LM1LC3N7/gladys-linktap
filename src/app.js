@@ -40,11 +40,13 @@
 //     cuts a request silent for 1 s, or after 1.5 s). It cancels the starts of
 //     its timer not sent yet. Not taken (no connection, a busy gateway, an
 //     HTTP error): tried again 250 ms later within its 3 s, then every 10 s
-//     and at every read reaching the gateway until taken (even during a pause
-//     and after a restart); 3 resends at most, counted only when they leave.
-//     Taken but a read sent after the click still shows the same run watering
-//     (4 s after, the radio): sent again within the same 3. A different run
-//     (started elsewhere) is never stopped. The stop guard is never lifted by
+//     and at every read reaching the gateway, every minute after 5 minutes,
+//     without end until taken (even during a pause and after a restart);
+//     never counted. Taken but a read sent after the click still shows the
+//     same run watering (4 s after, the radio): sent again, 3 times at most,
+//     each counted once. A run proven another one (length, time left grown,
+//     younger than the stop) is never stopped; in doubt, the stop wins. The
+//     stop guard is never lifted by
 //     the time alone (see watchGuards and the docs). Refused unsent only when
 //     the timer was never read, or no address of its gateway is known.
 //   - Pause of the watering plan (the configured hours): decided on a status
@@ -129,6 +131,12 @@ export class LinkTapApp {
     /** timerId -> the run seen last ({ total, remain }), and the one seen at the stop */
     this.lastRun = new Map();
     this.stopRun = new Map();
+    /** timerId -> when its last stop was clicked (monotonic) */
+    this.stopClickAt = new Map();
+    /** timerIds whose gateway was seen counting the time left down */
+    this.countsDown = new Set();
+    /** timerId -> { failures, since, next (monotonic) }: the spaced retries of a stop not taken */
+    this.stopRetry = new Map();
     /** timerId -> end of its pause-of-the-plan guard (monotonic) and the number of its request */
     this.planPauseUntil = new Map();
     this.planPauseSeq = new Map();
@@ -755,6 +763,17 @@ export class LinkTapApp {
     if (linked) {
       this.watchGuards(gateway, timer.id, reading, origin);
       if (reading.watering) {
+        const previous = this.lastRun.get(timer.id);
+        if (
+          previous &&
+          previous.total === reading.total &&
+          reading.remaining !== undefined &&
+          previous.remain !== undefined &&
+          reading.remaining < previous.remain
+        ) {
+          // The gateway counts the time left down: the age of a run can be trusted.
+          this.countsDown.add(timer.id);
+        }
         this.lastRun.set(timer.id, { total: reading.total, remain: reading.remaining });
       } else {
         this.lastRun.delete(timer.id);
@@ -762,18 +781,37 @@ export class LinkTapApp {
     }
   }
 
-  /** A watering read after a stop is another run (started elsewhere) than the one stopped. */
+  /**
+   * A watering read after a stop is another run (started elsewhere) than the
+   * one stopped, on proof only (in doubt, the stop wins):
+   *   - its length differs from the run seen at the stop;
+   *   - its time left grew past the last one seen of the stopped run;
+   *   - it is younger than the time since the click: its elapsed time
+   *     (length - time left) is shorter than the time since the click, less
+   *     a margin; only once this gateway was seen counting the time left
+   *     down (a time left that does not move proves nothing).
+   */
   isNewRun(timerId, reading) {
     const run = this.stopRun.get(timerId);
     if (!run || run.total === undefined || reading.total === undefined) {
       return false;
     }
-    return (
-      reading.total !== run.total ||
-      (reading.remaining !== undefined &&
-        run.remain !== undefined &&
-        reading.remaining > run.remain + TIMINGS.runTolerance)
-    );
+    if (reading.total !== run.total) {
+      return true;
+    }
+    if (reading.remaining === undefined) {
+      return false;
+    }
+    if (run.remain !== undefined && reading.remaining > run.remain + TIMINGS.runTolerance) {
+      return true;
+    }
+    const clickAt = this.stopClickAt.get(timerId);
+    if (!this.countsDown.has(timerId) || clickAt === undefined) {
+      return false;
+    }
+    const elapsed = reading.total - reading.remaining;
+    const since = (this.monotonic() - clickAt) / 1000;
+    return elapsed < since - TIMINGS.runAgeMargin;
   }
 
   /**
@@ -1108,8 +1146,13 @@ export class LinkTapApp {
         parts.push(T.wateringOff);
       }
     }
-    for (const note of this.notes.values()) {
-      parts.push(note);
+    for (const [timerId, note] of this.notes) {
+      // An outcome is told for half an hour at most (or until the next command).
+      if (this.monotonic() - note.at > TIMINGS.noteLife) {
+        this.notes.delete(timerId);
+      } else {
+        parts.push(note.text);
+      }
     }
     const waiting = this.stopsNotTaken(true);
     if (waiting.length > 0) {
@@ -1181,6 +1224,7 @@ export class LinkTapApp {
   refusal(text) {
     const error = new Error(word(text, this.latest?.language ?? this.config?.language ?? 'fr'));
     error.refusal = true;
+    error.text = text;
     return error;
   }
 
@@ -1259,8 +1303,17 @@ export class LinkTapApp {
   }
 
   /** A command answered "queued" that did not leave (or was refused): said in the status. */
-  noteLate(timer, kind, reason) {
-    this.notes.set(timer.id, T.lateOutcome(timerName(timer), kind, reason));
+  noteLate(timer, kind, err) {
+    // A whole sentence in both languages: the refusal, or "Not sent (…)" / "Refused (…)".
+    const of = (make) => ({
+      en: make(kindText(err.kind).en).en,
+      fr: make(kindText(err.kind).fr).fr,
+    });
+    const reason = err.text ?? (kind === 'refused' ? of(ERRORS.refused) : of(ERRORS.notSent));
+    this.notes.set(timer.id, {
+      text: T.lateOutcome(timerName(timer), kind, reason),
+      at: this.monotonic(),
+    });
     // The real state again, in case a dashboard showed what was hoped for.
     const featureId = timerIds(this.gladys, timer.id).feature('watering');
     const last = this.lastValues.get(featureId);
@@ -1401,18 +1454,17 @@ export class LinkTapApp {
         return result;
       }
       const err = result.err;
-      const reason = err.refusal ? err.message : word(kindText(err.kind), this.language);
       if (err.refusal || err.beforeSend || !err.sent) {
         // Surely nothing left: the guard goes.
         this.liftStart(timer.id);
         if (!err.refusal)
           this.logger.warn(`LinkTap ${timer.id}: start NOT sent (${reasonOf(err)})`);
-        if (ticket.acked) this.noteLate(timer, 'notSent', reason);
+        if (ticket.acked) this.noteLate(timer, 'notSent', err);
       } else if (refusedByGateway(err)) {
         this.onFailure(gateway.address, err);
         this.liftStart(timer.id);
         this.logger.warn(`LinkTap ${timer.id}: start refused (${reasonOf(err)})`);
-        if (ticket.acked) this.noteLate(timer, 'refused', reason);
+        if (ticket.acked) this.noteLate(timer, 'refused', err);
       } else {
         this.onFailure(gateway.address, err);
         this.followUp(gateway);
@@ -1517,6 +1569,8 @@ export class LinkTapApp {
     }
     // Only a reading sent after this click decides for this stop.
     this.stopClick.set(timer.id, this.nextSequence());
+    this.stopClickAt.set(timer.id, this.monotonic());
+    this.stopRetry.delete(timer.id);
     const run = this.lastRun.get(timer.id);
     if (run) {
       this.stopRun.set(timer.id, { ...run });
@@ -1527,12 +1581,12 @@ export class LinkTapApp {
     guards.gatewayId = gateway.id;
     guards.stop = { at: this.now(), acked: false, dry: false, resends: 0, seenWatering: 0 };
     this.data.guards[timer.id] = guards;
-    // On disk if it can be within 300 ms: a stop never waits for /data.
-    await Promise.race([this.save(), this.sleep(300)]);
-    // No resend while the stop of the click is out.
+    // No resend while the stop of the click is out (the write of /data included).
     this.resending.add(timer.id);
     let outcome;
     try {
+      // On disk if it can be within 300 ms: a stop never waits for /data.
+      await Promise.race([this.save(), this.sleep(300)]);
       outcome = await this.sendStop(
         gateway,
         timer.id,
@@ -1559,11 +1613,10 @@ export class LinkTapApp {
 
   /**
    * Sends the stop of a timer, ahead of the queue; tried again once 250 ms
-   * later when it could not leave or the gateway did not take it, within
-   * `sendBy`, as long as its guard is the same. A resend counts only once its
-   * request leaves. Resolves `{ sent, error }`, never rejects.
+   * later when the gateway did not take it, within `sendBy`, as long as its
+   * guard is the same. Resolves `{ sent, taken, error }`, never rejects.
    */
-  async sendStop(gateway, timerId, sendBy, answerBy, { resend = false } = {}) {
+  async sendStop(gateway, timerId, sendBy, answerBy) {
     const address = gateway.address;
     const guard = this.data.guards[timerId]?.stop;
     let last;
@@ -1572,7 +1625,6 @@ export class LinkTapApp {
         // A newer start or stop took over: this one is not sent again.
         return { sent: false, error: this.refusal(ERRORS.cancelled) };
       }
-      let counted = false;
       try {
         await this.request(address, PRIORITY.PROTECTIVE, (target, context) =>
           this.client.stop(target, gateway.id, timerId, {
@@ -1583,23 +1635,18 @@ export class LinkTapApp {
             beforeSend: () => {
               if (this.monotonic() > sendBy) throw new LinkTapError('late');
               this.stopSeq.set(timerId, this.nextSequence());
-              if (resend && guard && !counted) {
-                // Counted once it leaves: a gateway away never uses the resends up.
-                counted = true;
-                guard.resends += 1;
-                this.persist();
-              }
             },
           }),
         );
         this.stopTakenAt.set(timerId, this.monotonic());
+        this.stopRetry.delete(timerId);
         if (guard && this.data.guards[timerId]?.stop === guard) {
           guard.acked = true;
           this.persist();
         }
         this.logger.info(`LinkTap ${timerId}: stop taken by the gateway`);
         this.updateStatus();
-        return { sent: true };
+        return { sent: true, taken: true };
       } catch (err) {
         last = err;
         if (stopNotApplied(err) && this.monotonic() + TIMINGS.stopRetryDelay < sendBy) {
@@ -1622,41 +1669,63 @@ export class LinkTapApp {
       return { sent: true, error: this.refusal(ERRORS.unknownDevice) };
     }
     if (stopNotApplied(last) || last.kind === 'otherGateway') {
+      // Surely not applied: never counted, tried again (spaced) until taken.
       return { sent: false, error: this.refusal(ERRORS.stopNotSent(reason)) };
     }
     if (refusedByGateway(last)) {
       return { sent: true, error: this.refusal(ERRORS.refused(reason)) };
     }
+    // Left without an answer: it may have been applied.
     return { sent: true, error: this.refusal(ERRORS.sentUnconfirmed(reason)) };
   }
 
   /**
-   * Sends a stop again (reads, the 10 s retries, restart): one at a time, 3
-   * resends at most per stop, counted in /data only when they leave.
+   * Sends a stop again (reads, the 10 s ticker, restart), one at a time.
+   *   - Not taken yet by the gateway: tried again without end, spaced (every
+   *     10 s, every minute after 5 minutes of refusals); never counted.
+   *   - Taken, but the same run still waters: 3 resends at most per stop,
+   *     counted in /data when the gateway takes them or they leave without
+   *     an answer (an answer proving nothing was applied never counts).
    */
   resendStop(timerId) {
     const guards = this.data.guards[timerId];
     const guard = guards?.stop;
     const gateway = guards && this.data.gateways[guards.gatewayId];
-    if (
-      !guard ||
-      !gateway?.address ||
-      this.resending.has(timerId) ||
-      guard.resends >= TIMINGS.stopResends
-    ) {
+    if (!guard || !gateway?.address || this.resending.has(timerId)) {
       return;
     }
+    const retry = this.stopRetry.get(timerId);
+    if (!guard.acked && retry && this.monotonic() < retry.next) {
+      return;
+    }
+    if (guard.acked && guard.resends >= TIMINGS.stopResends) {
+      return;
+    }
+    const counts = guard.acked;
     this.resending.add(timerId);
     const mono = this.monotonic();
-    this.sendStop(gateway, timerId, mono + TIMINGS.stopSendBy, mono + TIMINGS.ackBy, {
-      resend: true,
-    })
+    this.sendStop(gateway, timerId, mono + TIMINGS.stopSendBy, mono + TIMINGS.ackBy)
       .then((outcome) => {
-        if (outcome.error) this.logger.debug(`Stop sent again: ${outcome.error.message}`);
-        else
+        if (counts && outcome.sent && this.data.guards[timerId]?.stop === guard) {
+          // Counted once per resend, the 250 ms retry included.
+          guard.resends += 1;
+          this.persist();
+        }
+        if (!outcome.taken) {
+          const previous = this.stopRetry.get(timerId);
+          const since = previous?.since ?? mono;
+          const slow = this.monotonic() - since >= TIMINGS.stopRetrySlowAfter;
+          this.stopRetry.set(timerId, {
+            failures: (previous?.failures ?? 0) + 1,
+            since,
+            next: this.monotonic() + (slow ? TIMINGS.stopRetrySlow : TIMINGS.stopRetryEvery) - 500,
+          });
+          this.logger.debug(`Stop sent again: ${outcome.error?.message}`);
+        } else {
           this.logger.warn(
-            `LinkTap ${timerId}: stop sent again (${guard.resends}/${TIMINGS.stopResends})`,
+            `LinkTap ${timerId}: stop sent again${counts ? ` (${guard.resends}/${TIMINGS.stopResends})` : ''}`,
           );
+        }
         this.updateStatus();
       })
       .finally(() => this.resending.delete(timerId));
@@ -1757,11 +1826,7 @@ export class LinkTapApp {
       }
       if (result.err && ticket.acked && !ticket.sent) {
         const err = result.err;
-        this.noteLate(
-          timer,
-          'pauseNotSent',
-          err.refusal ? err.message : word(kindText(err.kind), this.language),
-        );
+        this.noteLate(timer, 'pauseNotSent', err);
       }
       if (result.ok && !result.nothing) this.followUp(gateway);
       return result;

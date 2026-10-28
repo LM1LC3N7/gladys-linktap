@@ -118,17 +118,27 @@ autre erreur (format, paramètre, commande non prise en charge).
 
 Si la passerelle **ne le prend pas** (pas de connexion, passerelle occupée,
 erreur HTTP comme un 404, autre passerelle à l'adresse), il est réessayé
-250 ms après dans ses 3 s, puis **toutes les 10 s et à chaque lecture qui
-atteint la passerelle, jusqu'à ce qu'elle le prenne**, même pendant une pause
-et après un redémarrage. Seuls les renvois réellement partis comptent : 3 au
-plus.
+250 ms après dans ses 3 s, puis **toutes les 10 s (chaque minute après
+5 minutes) et à chaque lecture qui atteint la passerelle, sans fin jusqu'à ce
+qu'elle le prenne**, même pendant une pause et après un redémarrage. Ces essais
+ne sont jamais comptés : une réponse qui montre que rien n'a été appliqué
+(occupée, 404) n'est pas un renvoi.
 
 Après un arrêt pris par la passerelle, une lecture qui montre encore **le
 même arrosage** en cours (plus de 4 s après : la radio a besoin de temps) le
-renvoie, dans les mêmes 3 renvois. Seules les lectures parties après le clic
-comptent. Un autre arrosage (sa durée a changé, ou son temps restant a
-augmenté : lancé par l'application LinkTap, le bouton ou le programme) n'est
-jamais coupé par un renvoi.
+renvoie : 3 renvois au plus, chacun compté une fois (quand la passerelle le
+prend, ou s'il est parti sans réponse). Seules les lectures parties après le
+clic comptent.
+
+Un autre arrosage n'est pas coupé par un renvoi **quand Gladys peut prouver
+que c'en est un autre** : sa durée diffère de celle de l'arrosage arrêté, son
+temps restant a augmenté, ou il est plus jeune que l'arrêt (son temps écoulé,
+durée moins temps restant, est plus court que le temps depuis le clic ;
+seulement une fois la passerelle vue en train de décompter le temps restant).
+**Dans le doute, l'arrêt l'emporte** : un arrosage de même durée relancé par
+l'application LinkTap quelques secondes après l'arrêt, sur une passerelle dont
+le temps restant ne décompte pas (ou n'est pas donné), peut être coupé par un
+renvoi.
 
 La surveillance d'un arrêt n'est levée que par :
 
