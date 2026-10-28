@@ -43,12 +43,13 @@
 //     and at every read reaching the gateway, every minute after 5 minutes,
 //     without end until taken (even during a pause and after a restart);
 //     never counted. Taken but a read sent after the click still shows the
-//     same run watering (4 s after, the radio): sent again, 3 times at most,
-//     each counted once. A run proven another one (length, time left grown,
-//     younger than the stop) is never stopped; in doubt, the stop wins. The
-//     stop guard is never lifted by
-//     the time alone (see watchGuards and the docs). Refused unsent only when
-//     the timer was never read, or no address of its gateway is known.
+//     same run watering (a read sent 4 s or more after the gateway took it:
+//     the radio): sent again, 3 times at most, each counted once. A run
+//     proven another one (length, time left grown, younger than the stop,
+//     timed from the departure of the read) is never stopped; in doubt, the
+//     stop wins. The stop guard is never lifted by the time alone (see
+//     watchGuards and the docs). Refused unsent only when the timer was never
+//     read, or no address of its gateway is known.
 //   - Pause of the watering plan (the configured hours): decided on a status
 //     read just now; already paused or unknown: nothing sent; a guard refuses
 //     a second pause until a read shows the plan paused, 10 min at most (a
@@ -421,6 +422,17 @@ export class LinkTapApp {
     return this.sequence;
   }
 
+  /**
+   * A status read leaving now: its request number, and the time it leaves
+   * (monotonic). The gateway measures the timer during the request, up to
+   * 3 s before its answer: every time compared with a click or a stop counts
+   * from `at`, never from the answer.
+   */
+  stamp(origin) {
+    origin.seq = this.nextSequence();
+    origin.at = this.monotonic();
+  }
+
   laneOf(address) {
     if (!this.lanes.has(address)) {
       this.lanes.set(
@@ -614,11 +626,12 @@ export class LinkTapApp {
     let missed = 0;
     for (const timer of [...gateway.timers]) {
       let reading;
-      const origin = { seq: 0 };
+      // Numbered and dated when its request leaves (`stamp`).
+      const origin = { seq: 0, at: undefined };
       try {
         reading = statusOf(
           await this.request(address, PRIORITY.READ, (target, context) => {
-            origin.seq = this.nextSequence();
+            this.stamp(origin);
             return this.client.status(target, gateway.id, timer.id, {
               timeout: TIMINGS.requestTimeout,
               signal: context.signal,
@@ -759,7 +772,7 @@ export class LinkTapApp {
   handleReading(gateway, timer, reading, origin) {
     const linked = reading.rfLinked !== false;
     this.setReachable(timer.id, linked);
-    this.recordValues(timer, reading);
+    this.recordValues(timer, reading, origin.at);
     if (linked) {
       this.watchGuards(gateway, timer.id, reading, origin);
       if (reading.watering) {
@@ -786,12 +799,17 @@ export class LinkTapApp {
    * one stopped, on proof only (in doubt, the stop wins):
    *   - its length differs from the run seen at the stop;
    *   - its time left grew past the last one seen of the stopped run;
-   *   - it is younger than the time since the click: its elapsed time
-   *     (length - time left) is shorter than the time since the click, less
-   *     a margin; only once this gateway was seen counting the time left
-   *     down (a time left that does not move proves nothing).
+   *   - it is younger than the stop: its elapsed time (length - time left)
+   *     is shorter than the time from the click to the departure of the
+   *     reading (`origin.at`: the gateway measures during the request, up to
+   *     3 s before its answer), less a margin for the rounding to the second;
+   *     only once this gateway was seen counting the time left down (a time
+   *     left that does not move proves nothing). For the run of the click,
+   *     the elapsed time is never shorter, rounding aside. Without a run seen
+   *     before the click, the first reading after it becomes the reference
+   *     unproven (TODO.md).
    */
-  isNewRun(timerId, reading) {
+  isNewRun(timerId, reading, origin) {
     const run = this.stopRun.get(timerId);
     if (!run || run.total === undefined || reading.total === undefined) {
       return false;
@@ -810,7 +828,9 @@ export class LinkTapApp {
       return false;
     }
     const elapsed = reading.total - reading.remaining;
-    const since = (this.monotonic() - clickAt) / 1000;
+    // From the departure of the reading, never its answer (a reading not
+    // stamped gives NaN: never another run).
+    const since = (origin.at - clickAt) / 1000;
     return elapsed < since - TIMINGS.runAgeMargin;
   }
 
@@ -853,7 +873,7 @@ export class LinkTapApp {
       }
       return;
     }
-    if (stop.dry || this.isNewRun(timerId, reading)) {
+    if (stop.dry || this.isNewRun(timerId, reading, origin)) {
       // Started elsewhere: lifted when seen twice in a row.
       stop.seenWatering += 1;
       if (stop.seenWatering >= 2) {
@@ -871,11 +891,13 @@ export class LinkTapApp {
     } else if (this.stopRun.has(timerId) && reading.remaining !== undefined) {
       this.stopRun.get(timerId).remain = reading.remaining;
     }
+    // Taken by the gateway a moment ago: the radio may not have carried it
+    // yet. Counted to the departure of the reading (the gateway measured
+    // then), never to its answer.
     if (
       !stop.acked ||
-      this.monotonic() - (this.stopTakenAt.get(timerId) ?? -Infinity) >= TIMINGS.radioDelay
+      origin.at - (this.stopTakenAt.get(timerId) ?? -Infinity) >= TIMINGS.radioDelay
     ) {
-      // Taken by the gateway a moment ago: the radio may not have carried it yet.
       this.resendStop(timerId);
     }
   }
@@ -909,8 +931,8 @@ export class LinkTapApp {
     }
   }
 
-  recordValues(timer, reading) {
-    const at = this.monotonic();
+  /** The values of a reading, as old as the departure of its read (`at`, monotonic). */
+  recordValues(timer, reading, at) {
     for (const [featureId, entry] of valuesOf(this.gladys, timer, reading)) {
       this.lastValues.set(featureId, { entry, at });
       if (this.created.has(featureId)) {
@@ -1366,7 +1388,7 @@ export class LinkTapApp {
       // Decided on the state read just now (after the click): a timer not
       // linked by radio or unreadable is refused, one already watering is
       // left as it is (nothing sent, its run never lengthened).
-      const origin = { seq: 0 };
+      const origin = { seq: 0, at: undefined };
       let reading;
       try {
         reading = statusOf(
@@ -1375,7 +1397,7 @@ export class LinkTapApp {
             PRIORITY.COMMAND,
             (target, context) => {
               this.checkStart(gateway, timer, ticket, received);
-              origin.seq = this.nextSequence();
+              this.stamp(origin);
               return this.client.status(target, gateway.id, timer.id, {
                 timeout: TIMINGS.requestTimeout,
                 signal: context.signal,
@@ -1517,7 +1539,7 @@ export class LinkTapApp {
       return false;
     }
     await this.sleep(TIMINGS.confirmDelay);
-    const origin = { seq: 0 };
+    const origin = { seq: 0, at: undefined };
     const abort = new AbortController();
     try {
       const json = await Promise.race([
@@ -1525,7 +1547,7 @@ export class LinkTapApp {
           gateway.address,
           PRIORITY.COMMAND,
           (target, context) => {
-            origin.seq = this.nextSequence();
+            this.stamp(origin);
             return this.client.status(target, gateway.id, timer.id, {
               timeout: Math.max(100, ackAt - this.monotonic() - 100),
               signal: context.signal,
@@ -1754,13 +1776,13 @@ export class LinkTapApp {
     };
     const work = (async () => {
       // Decided on a status read just now: a second pause can switch the plan off.
-      const origin = { seq: 0 };
+      const origin = { seq: 0, at: undefined };
       let reading;
       try {
         reading = statusOf(
           await this.request(gateway.address, PRIORITY.COMMAND, (target, context) => {
             check();
-            origin.seq = this.nextSequence();
+            this.stamp(origin);
             return this.client.status(target, gateway.id, timer.id, {
               timeout: TIMINGS.requestTimeout,
               signal: context.signal,

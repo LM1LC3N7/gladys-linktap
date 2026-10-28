@@ -21,6 +21,11 @@
       lane waits for the close + 50 ms)?
 - [ ] ECO mode: a dry read during an "off" segment counts as dry for a stop
       guard; `is_final` or `remain_duration` could tell (review 1, m8).
+- [ ] `remain_duration`: counted live when cmd 3 arrives, or the value of the
+      last radio report (cached)? The age proof (a run younger than the stop
+      is another run) assumes a live count: a cached time left makes the
+      stopped run look younger than it is, and the 1.5 s margin only covers a
+      rounding to the second (review 3).
 - [ ] The `Server` header of the gateway (the openHAB binding checks it): it
       could tell a LinkTap gateway from another device.
 
@@ -32,6 +37,11 @@
 - [ ] Several gateways (one address each).
 - [ ] Scene actions (water a timer for N minutes), dashboard widget.
 - [ ] Keywords and countries of the store catalog, once the store takes them.
+- [ ] The age proof is unused without a run read before the click (`lastRun`
+      empty at the stop): the first watering read after the click becomes the
+      reference unproven, so a run started elsewhere just after the stop and
+      seen by that first read is cut by a resend (the safe side). Testing its
+      age before taking it as the reference would spare it (review 3).
 
 ## Decisions
 
@@ -74,12 +84,15 @@
   end until taken, never counted (an answer proving nothing was applied is
   not a resend, review 2 B1). A taken stop whose same run still waters is
   resent 3 times at most, each counted once (taken, or left unanswered). Only readings sent after the
-  click decide (request numbers, review 1, I1). A resend targets only the run
-  seen at the stop: another run, proven by `total_duration` changed,
-  `remain_duration` grown, or an elapsed time shorter than the time since
-  the click (only once the gateway was seen counting down), read twice in a
-  row lifts the guard. In doubt the stop wins, said in the docs (review 2,
-  I1).
+  click decide (request numbers, review 1, I1), each timed from the
+  departure of its request, never its answer (the gateway measures during
+  the request, up to 3 s before answering; review 3, I1): the resend of a
+  taken stop waits for a read sent 4 s after the take. A resend targets only
+  the run seen at the stop: another run, proven by `total_duration` changed,
+  `remain_duration` grown, or an elapsed time more than 1.5 s shorter than
+  the time from the click to the departure of the read (only once the
+  gateway was seen counting down), read twice in a row lifts the guard. In
+  doubt the stop wins, said in the docs (review 2, I1).
   The stop guard is never lifted by time: a dry read then a watering read
   twice in a row, another run read twice in a row, a start from Gladys with
   the option (sent, or finding the timer watering), or `ret` 4/5.
@@ -94,8 +107,13 @@
 - cmd 16 is secondary once the timers are known, transport failures
   included: the read stops only if the first timer fails the same way
   (review 1, I4). Every timer failing is not "connected" (m3).
-- Equivalent mutant kept: "stop acked only for the same guard" (an orphan
-  guard marked acked changes nothing); the check is kept on purpose.
+- Equivalent mutants kept, the checks on purpose: "stop acked only for the
+  same guard" (an orphan guard marked acked changes nothing); "a taken stop
+  keeps its spacing" and "the cap of 3 also without a take" (the spacing
+  only applies to a guard not taken, which never becomes not taken again;
+  `resends` only grows once taken) (reviews 2 and 3).
+- A value is as old as the departure of its read: a device created later
+  gets it only within two intervals of that (review 3).
 - Reads never sooner than the interval (default 30 s, 15 to 600 s): the time
   of the last try is in /data before the read. 429, 5xx, `ret` 6/8: a pause
   of 1 min to 6 h, persisted, on the monotonic clock in memory.

@@ -125,20 +125,24 @@ ne sont jamais comptés : une réponse qui montre que rien n'a été appliqué
 (occupée, 404) n'est pas un renvoi.
 
 Après un arrêt pris par la passerelle, une lecture qui montre encore **le
-même arrosage** en cours (plus de 4 s après : la radio a besoin de temps) le
-renvoie : 3 renvois au plus, chacun compté une fois (quand la passerelle le
-prend, ou s'il est parti sans réponse). Seules les lectures parties après le
-clic comptent.
+même arrosage** en cours (partie au moins 4 s après la prise : la radio a
+besoin de temps) le renvoie : 3 renvois au plus, chacun compté une fois (quand
+la passerelle le prend, ou s'il est parti sans réponse). Seules les lectures
+parties après le clic comptent, et chacune est datée de son départ : la
+passerelle mesure pendant la requête, jusqu'à 3 s avant sa réponse.
 
 Un autre arrosage n'est pas coupé par un renvoi **quand Gladys peut prouver
 que c'en est un autre** : sa durée diffère de celle de l'arrosage arrêté, son
 temps restant a augmenté, ou il est plus jeune que l'arrêt (son temps écoulé,
-durée moins temps restant, est plus court que le temps depuis le clic ;
-seulement une fois la passerelle vue en train de décompter le temps restant).
-**Dans le doute, l'arrêt l'emporte** : un arrosage de même durée relancé par
-l'application LinkTap quelques secondes après l'arrêt, sur une passerelle dont
-le temps restant ne décompte pas (ou n'est pas donné), peut être coupé par un
-renvoi.
+durée moins temps restant, est plus court de plus de 1,5 s que le temps entre
+le clic et le départ de la lecture ; seulement une fois la passerelle vue en
+train de décompter le temps restant). **Dans le doute, l'arrêt l'emporte** :
+un arrosage relancé par l'application LinkTap quelques secondes après l'arrêt
+peut être coupé par un renvoi, par exemple s'il a la même durée et que le
+temps restant de la passerelle ne décompte pas (ou n'est pas donné), ou si
+Gladys n'avait pas lu l'arrosage arrêté avant le clic et que la première
+lecture qui suit le montre déjà relancé (elle sert alors de référence, quelle
+que soit sa durée).
 
 La surveillance d'un arrêt n'est levée que par :
 
