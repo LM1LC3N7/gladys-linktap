@@ -194,11 +194,11 @@ test('a stop not taken before a restart leaves at boot, from /data only', async 
       [TAP1]: { gatewayId: GW, stop: { at: NOW - 5000, acked: false, dry: false, resends: 0 } },
     },
   });
-  const { app, brain, drive, store, clock } = await setup({ data, connect: false });
+  const { app, brain, drive, clock } = await setup({ data, connect: false });
   await drive(app.boot());
   await clock.advance(100);
   assert.equal(brain.count(7, TAP1), 1);
-  assert.equal(store.data.guards[TAP1].stop.resends, 1);
+  assert.equal(app.data.guards[TAP1].stop.resends, 1);
 });
 
 test('getConfig failing in "connected": tried again without end, then the integration starts', async () => {
@@ -418,7 +418,7 @@ test('start: the option switched off while it waits: nothing sent', async () => 
     1,
   );
   await clock.advance(500);
-  app.config.allowWatering = false;
+  app.latest.allowWatering = false;
   const result = await drive(pressed);
   assert.equal(result.success, false);
   assert.equal(brain.count(6), 0);
@@ -432,7 +432,7 @@ test('start: the option is checked again right before the request leaves', async
       // The start connects slowly; the option goes off meanwhile.
       net.connectMs = 500;
       clock.timers.setTimeout(() => {
-        app.config.allowWatering = false;
+        app.latest.allowWatering = false;
       }, 200);
     }
     return answer(p);
@@ -448,7 +448,7 @@ test('start: an unreadable /data says so; the length is capped in the code too',
   const refused = await broken.press(TAP1, 'start');
   assert.match(refused.error, /illisible/);
   const { brain, press, app } = await setup({ created: [{ id: TAP1, name: 'P' }] });
-  app.config.wateringMinutes = 100_000;
+  app.latest.wateringMinutes = 100_000;
   await press(TAP1, 'start');
   assert.deepEqual(brain.timer(TAP1).starts, [120 * 60]);
 });
@@ -463,12 +463,12 @@ test('a stop drops the start waiting in the queue at once', async () => {
   await clock.advance(100);
   const lane = app.lanes.get(ADDRESS);
   assert.ok(
-    lane.queue.some((e) => e.priority === 1),
+    lane.queue.some((e) => e.priority === 2),
     'the start waits',
   );
   gladys.fake.setValue(device, feature('stop'), 1);
   await clock.advance(10);
-  assert.ok(!lane.queue.some((e) => e.priority === 1), 'dropped at once');
+  assert.ok(!lane.queue.some((e) => e.priority === 2), 'dropped at once');
   await clock.advance(10 * SECOND);
   await start;
 });

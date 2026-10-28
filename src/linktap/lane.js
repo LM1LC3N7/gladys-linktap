@@ -4,8 +4,9 @@
 // single exchange in flight). Every request of the integration goes through
 // the lane of its gateway, in the order of their priority:
 //   0 PROTECTIVE  stops: ahead of everything queued;
-//   1 COMMAND     starts, pauses of the plan and their reads;
-//   2 READ        polling, confirmation and follow-up reads.
+//   1 SEND        the request of a start or a pause, once decided;
+//   2 COMMAND     the status reads that decide or confirm a command;
+//   3 READ        polling and follow-up reads.
 // A stop never overlaps a request either: it waits for the one in flight, but
 // cuts it (closed, then the stop leaves) when it has been silent for
 // `stallCut` ms, or when the stop has waited `protectiveWait` ms. A request
@@ -15,7 +16,7 @@
 
 import { LinkTapError } from './errors.js';
 
-export const PRIORITY = { PROTECTIVE: 0, COMMAND: 1, READ: 2 };
+export const PRIORITY = { PROTECTIVE: 0, SEND: 1, COMMAND: 2, READ: 3 };
 
 export class GatewayLane {
   constructor({ monotonic, timers, stallCut, protectiveWait }) {

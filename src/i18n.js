@@ -48,6 +48,8 @@ const KINDS = {
   otherGateway: both('another gateway answers', 'une autre passerelle répond'),
   conflict: both('conflict with the watering plan', "conflit avec le programme d'arrosage"),
   cut: both('cut by a stop', 'coupée par un arrêt'),
+  late: both('the gateway was not free in time', "la passerelle n'était pas libre à temps"),
+  cancelled: both('cancelled', 'annulée'),
   error: both('error', 'erreur'),
 };
 export const kindText = (kind) => KINDS[kind] ?? KINDS.error;
@@ -106,6 +108,30 @@ export const T = {
       `Still watering after a stop: ${names}.`,
       `Arrosage toujours en cours après un arrêt : ${names}.`,
     ),
+  lateOutcome: (name, kind, reason) =>
+    kind === 'refused'
+      ? both(
+          `Start of ${name} refused by the gateway (${reason}).`,
+          `Démarrage de ${name} refusé par la passerelle (${reason}).`,
+        )
+      : kind === 'pauseNotSent'
+        ? both(
+            `Pause of the plan of ${name} not sent: ${reason}`,
+            `Pause du programme de ${name} non envoyée : ${reason}`,
+          )
+        : both(
+            `Start of ${name} not sent: ${reason}`,
+            `Démarrage de ${name} non envoyé : ${reason}`,
+          ),
+  noTimerRead: both(
+    'No water timer could be read (unlinked or unknown to the gateway).',
+    "Aucun programmateur n'a pu être lu (non relié ou inconnu de la passerelle).",
+  ),
+  stopPending: (names) =>
+    both(
+      `Stop not taken by the gateway yet, sent again every 10 s: ${names}.`,
+      `Arrêt pas encore pris par la passerelle, renvoyé toutes les 10 s : ${names}.`,
+    ),
   check: {
     none: both('No address in the configuration.', "Pas d'adresse dans la configuration."),
     pending: both(
@@ -147,8 +173,8 @@ export const ERRORS = {
     "Refusé : /data/linktap.json est illisible, le démarrage n'a pas pu être enregistré.",
   ),
   saveFailed: both(
-    'Refused, nothing sent: the start could not be recorded in /data.',
-    "Refusé, rien envoyé : le démarrage n'a pas pu être enregistré dans /data.",
+    'Refused, nothing sent: the command could not be recorded in /data.',
+    "Refusé, rien envoyé : la commande n'a pas pu être enregistrée dans /data.",
   ),
   justStarted: both(
     'A start of this water timer was just sent: try again in a minute.',
@@ -172,8 +198,12 @@ export const ERRORS = {
     'Annulé, rien envoyé : la configuration a changé.',
   ),
   queued: both(
-    'Queued: the gateway handles one request at a time; it leaves within a few seconds unless a stop cancels it.',
-    "En file : la passerelle traite une requête à la fois ; elle part dans quelques secondes sauf si un arrêt l'annule.",
+    'Queued behind other requests (the gateway handles one at a time): it may leave up to 10 s after the click, otherwise nothing is sent and the status says so. A stop of the timer cancels it.',
+    "En file derrière d'autres requêtes (la passerelle en traite une à la fois) : elle peut partir jusqu'à 10 s après le clic, sinon rien n'est envoyé et le statut le dit. Un arrêt du programmateur l'annule.",
+  ),
+  justPaused: both(
+    'A pause of the plan of this water timer was just sent and is not seen yet: try again in a few minutes.',
+    "Une pause du programme de ce programmateur vient de partir et n'est pas encore visible : réessayez dans quelques minutes.",
   ),
   notSent: (reason) => both(`Not sent (${reason}).`, `Non envoyé (${reason}).`),
   refused: (reason) =>
@@ -188,7 +218,7 @@ export const ERRORS = {
   ),
   stopNotSent: (reason) =>
     both(
-      `Stop not sent yet (${reason}): Gladys sends it again with the next reads.`,
-      `Arrêt pas encore envoyé (${reason}) : Gladys le renvoie aux prochaines lectures.`,
+      `Stop not taken yet (${reason}): Gladys sends it again every 10 s until the gateway takes it.`,
+      `Arrêt pas encore pris (${reason}) : Gladys le renvoie toutes les 10 s jusqu'à ce que la passerelle le prenne.`,
     ),
 };

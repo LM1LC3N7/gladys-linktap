@@ -172,6 +172,12 @@ export function fakeRequest(brain, clock) {
     open: 0,
     peak: 0,
     attempts: 0,
+    /** Every payload a request was made for (sent or not). */
+    payloads: [],
+    /** Ignore `timeout` and `sendWithin` (a transport that only relies on `beforeSend`). */
+    ignoreDeadlines: false,
+    /** Bytes trickle during the latency: `onActivity` every this many ms (0: none). */
+    trickleMs: 0,
   };
   const later = (ms, fn) => {
     if (ms <= 0) {
@@ -184,6 +190,7 @@ export function fakeRequest(brain, clock) {
     new Promise((resolve, reject) => {
       const payload = JSON.parse(opts.body.toString('utf8'));
       net.attempts += 1;
+      net.payloads.push(payload);
       let settled = false;
       let connected = false;
       const handles = [];
@@ -205,13 +212,15 @@ export function fakeRequest(brain, clock) {
         return;
       }
       opts.signal?.addEventListener('abort', onAbort);
-      handles.push(
-        clock.timers.setTimeout(
-          () => finish(new LinkTapError('timeout', { sent: connected })),
-          Math.max(0, opts.timeout),
-        ),
-      );
-      if (opts.sendWithin !== undefined) {
+      if (!net.ignoreDeadlines) {
+        handles.push(
+          clock.timers.setTimeout(
+            () => finish(new LinkTapError('timeout', { sent: connected })),
+            Math.max(0, opts.timeout),
+          ),
+        );
+      }
+      if (opts.sendWithin !== undefined && !net.ignoreDeadlines) {
         handles.push(
           clock.timers.setTimeout(
             () => {
@@ -223,7 +232,7 @@ export function fakeRequest(brain, clock) {
       }
       const connect = () => {
         if (settled) return;
-        if (net.down) {
+        if (net.down || (net.onlyHost && opts.host !== net.onlyHost)) {
           finish(new LinkTapError('unreachable'));
           return;
         }
@@ -249,6 +258,11 @@ export function fakeRequest(brain, clock) {
         if (answer === 'silent') return;
         const latency =
           typeof net.latencyMs === 'function' ? net.latencyMs(payload) : net.latencyMs;
+        if (net.trickleMs > 0) {
+          for (let t = net.trickleMs; t < latency; t += net.trickleMs) {
+            handles.push(clock.timers.setTimeout(() => opts.onActivity?.(), t));
+          }
+        }
         const h = later(latency, () => {
           if (answer?.status !== undefined && answer.raw) {
             finish(null, {

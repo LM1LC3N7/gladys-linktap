@@ -73,13 +73,12 @@ function stopGuardOf(guard, now) {
   };
 }
 
-function startGuardOf(guard, now) {
+/** A start or pause guard: `{ at, until }`, never longer than `longest` from its time. */
+function startGuardOf(guard, now, longest) {
   if (!isObject(guard) || !Number.isFinite(guard.at) || guard.at > now) {
     return undefined;
   }
-  const until = Number.isFinite(guard.until)
-    ? Math.min(guard.until, guard.at + TIMINGS.startGuard)
-    : now;
+  const until = Number.isFinite(guard.until) ? Math.min(guard.until, guard.at + longest) : now;
   return until > now ? { at: guard.at, until } : undefined;
 }
 
@@ -145,11 +144,13 @@ export function sanitize(data, now) {
       if (!ID.test(id) || !isObject(guards) || !GATEWAY_ID.test(String(guards.gatewayId ?? ''))) {
         continue;
       }
-      const start = startGuardOf(guards.start, now);
+      const start = startGuardOf(guards.start, now, TIMINGS.startGuard);
+      const pause = startGuardOf(guards.pause, now, TIMINGS.pauseGuard);
       const stop = stopGuardOf(guards.stop, now);
-      if (start || stop) {
+      if (start || stop || pause) {
         base.guards[id] = { gatewayId: guards.gatewayId };
         if (start) base.guards[id].start = start;
+        if (pause) base.guards[id].pause = pause;
         if (stop) base.guards[id].stop = stop;
       }
     }
@@ -194,12 +195,16 @@ export class FileStore {
 
 /** For the tests. */
 export class MemoryStore {
-  constructor(data = emptyData(), { now = Date.now, broken = false, failSaves = false } = {}) {
+  constructor(
+    data = emptyData(),
+    { now = Date.now, broken = false, failSaves = false, hangSaves = false } = {},
+  ) {
     this.data = JSON.parse(JSON.stringify(data));
     this.saves = 0;
     this.now = now;
     this.broken = broken;
     this.failSaves = failSaves;
+    this.hangSaves = hangSaves;
   }
 
   async load() {
@@ -210,6 +215,10 @@ export class MemoryStore {
   }
 
   async save(data) {
+    if (this.hangSaves) {
+      // A disk that never answers.
+      await new Promise(() => {});
+    }
     if (this.failSaves) {
       throw new Error('disk full');
     }

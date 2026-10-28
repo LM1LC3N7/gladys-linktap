@@ -19,6 +19,8 @@
       radio): the confirmation read waits 1.2 s, a resend waits 4 s.
 - [ ] Does the gateway close a connection cut by the client at once (the
       lane waits for the close + 50 ms)?
+- [ ] ECO mode: a dry read during an "off" segment counts as dry for a stop
+      guard; `is_final` or `remain_duration` could tell (review 1, m8).
 - [ ] The `Server` header of the gateway (the openHAB binding checks it): it
       could tell a LinkTap gateway from another device.
 
@@ -59,19 +61,36 @@
 - Start = sensitive: off by default, checked on arrival, at its turn and in
   `beforeSend`; length from the configuration, 1 to 120 min, capped in the
   code; guard on disk (awaited, else refused) before the first byte, 60 s, or
-  until a read sent after it shows watering; no read before the start (the
-  gateway checks the ids; a timer already watering only gets its run set to
-  the bounded length). Queued at the ack (3.4 s): may leave until 10 s after
-  the click, cancelled by a stop of its timer.
+  until a read sent after the click shows watering; decided on a status read
+  just now (already watering: nothing sent; unreadable or unlinked: refused).
+  Queued at the ack (3.4 s): may leave until 10 s after the click, cancelled
+  by a stop of its timer; a queued start that does not leave is told in the
+  status (review 1, I5). The configuration received applies to the commands
+  at once, never after a read in progress (review 1, B2).
 - Stop = protective: never held by the option, a pause, the guards, a
   missing configuration or a read in flight; sent from /data at boot when not
-  taken before; retried 250 ms later within 3 s; then follow-ups and reads,
-  3 resends at most per stop (counted in /data). The stop guard is never
-  lifted by time: only a dry read then a watering read twice in a row, or a
-  start from Gladys whose request leaves.
-- Pause of the plan: decided on a status read just now; already paused:
-  nothing sent (LinkTap issue #88 of the reference: a second pause switches
-  the plan off); not gated by the start option.
+  taken before; retried 250 ms later within 3 s; then every 10 s and at every
+  read reaching the gateway until taken; 3 resends at most per stop, counted
+  in /data only when they leave (review 1, B1). Only readings sent after the
+  click decide (request numbers, review 1, I1). A resend targets only the run
+  seen at the stop: another run (`total_duration` changed or
+  `remain_duration` grew) read twice in a row lifts the guard (review 1, I2).
+  The stop guard is never lifted by time: a dry read then a watering read
+  twice in a row, another run read twice in a row, a start from Gladys with
+  the option (sent, or finding the timer watering), or `ret` 4/5.
+- Pause of the plan: decided on a status read just now; already paused, or
+  `is_paused` missing: nothing sent (LinkTap issue #88 of the reference: a
+  second pause switches the plan off); a pause guard on disk before the first
+  byte refuses another one until a read sent after it shows the plan paused,
+  10 min at most (review 1, I3); not gated by the start option.
+- One request at a time, by priority: stops, then the request of a start or
+  pause once decided, then the reads deciding or confirming a command, then
+  the polling. A confirmation read that lost its race leaves the queue.
+- cmd 16 is secondary once the timers are known, transport failures
+  included: the read stops only if the first timer fails the same way
+  (review 1, I4). Every timer failing is not "connected" (m3).
+- Equivalent mutant kept: "stop acked only for the same guard" (an orphan
+  guard marked acked changes nothing); the check is kept on purpose.
 - Reads never sooner than the interval (default 30 s, 15 to 600 s): the time
   of the last try is in /data before the read. 429, 5xx, `ret` 6/8: a pause
   of 1 min to 6 h, persisted, on the monotonic clock in memory.

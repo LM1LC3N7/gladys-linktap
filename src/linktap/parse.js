@@ -190,6 +190,8 @@ export function statusOf(json, timerId, volumeUnit) {
     signal: integer(num(own(entry, 'signal')), 0, 100),
     // A remaining length is 0 once the watering ended (the gateway may keep the last one).
     remaining: watering ? remaining : 0,
+    // The length of the current run: with `remaining`, it tells one run from the next.
+    total: integer(num(own(entry, 'total_duration')), 0, LIMITS.remainingSeconds),
     flow:
       flowMeter === true && litresPerMinute !== undefined
         ? Math.round(litresPerMinute * 0.06 * 1000) / 1000

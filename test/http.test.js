@@ -136,3 +136,43 @@ test('the lane: a stop cuts a silent read, waits for its socket to close, never 
   assert.equal(peak, 1);
   assert.equal(brain.count(7, TAP1), 1);
 });
+
+test('beforeSend runs once connected, before any byte; if it throws, nothing is sent', async (t) => {
+  const brain = gatewayBrain();
+  const srv = await httpServer({ routes: { 'POST /api.shtml': (r) => brain.handle(r.json) } });
+  t.after(() => srv.close());
+  const target = { host: '127.0.0.1', port: srv.port };
+  let calls = 0;
+  await client.stop(target, GW, TAP1, {
+    timeout: 1500,
+    beforeSend: () => {
+      calls += 1;
+      assert.equal(srv.requests.length, 0, 'nothing written yet');
+    },
+  });
+  assert.equal(calls, 1);
+  assert.equal(srv.requests.length, 1);
+  const refused = new Error('option off');
+  await assert.rejects(
+    client.start(target, GW, TAP1, 60, {
+      timeout: 1500,
+      beforeSend: () => {
+        throw refused;
+      },
+    }),
+    (err) => err === refused && err.beforeSend === true && err.sent === false,
+  );
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(srv.requests.length, 1, 'the start never reached the gateway');
+  assert.equal(brain.count(6), 0);
+});
+
+test('an answer about another water timer is refused', async (t) => {
+  const srv = await httpServer({
+    routes: { 'POST /api.shtml': { cmd: 7, gw_id: GW, dev_id: '9999888877776666', ret: 0 } },
+  });
+  t.after(() => srv.close());
+  await assert.rejects(client.stop({ host: '127.0.0.1', port: srv.port }, GW, TAP1, options), {
+    kind: 'invalid',
+  });
+});

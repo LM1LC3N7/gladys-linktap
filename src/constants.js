@@ -113,8 +113,14 @@ export const TIMINGS = {
   followUps: [5000, 15_000, 30_000, 60_000],
   /** After a start that may have left, no other start of the timer for this long. */
   startGuard: 60_000,
-  /** A stop is sent again at most this many times (reads, follow-ups, restart). */
+  /** A stop is sent again at most this many times (counted only when it left). */
   stopResends: 3,
+  /** A stop not taken by the gateway yet is tried again this often (even during a pause). */
+  stopRetryEvery: 10_000,
+  /** After a pause of the plan sent, no other one until a read shows it, or this long. */
+  pauseGuard: 10 * 60_000,
+  /** A new run: its time left grew by more than this (s) since the run seen at the stop. */
+  runTolerance: 2,
   /** Transient failures: the next reads, never sooner than the interval. */
   backoff: [30_000, 60_000, 120_000, 300_000],
   /** HTTP 429, 5xx or a busy gateway: a pause within these bounds. */

@@ -62,20 +62,27 @@ gateway are refused.
 
 - **Starting opens a valve: it is off by default.** Turn on **Allow starting
   a watering** to use the Start button. Otherwise the dashboard, the scenes and
-  the voice assistants can only read, stop and pause the plan.
+  the voice assistants can only read, stop and pause the plan. A saved
+  configuration applies to the commands at once (an option unticked holds the
+  starts from that moment, even while a read runs).
+- Gladys reads the timer first: already watering, nothing is sent (the run is
+  never lengthened).
 - The watering lasts the configured length (15 minutes by default, **120
   minutes at most**, a bound applied by Gladys); it is part of the command and
   the water timer closes the valve by itself at the end. Gladys never sends a
   watering by volume.
-- Refused, nothing sent: the option off, the address of the configuration is
-  not the one of the gateway of the timer, a pause asked by the gateway, the
-  file `/data/linktap.json` unreadable or the start impossible to record in it,
-  another command of the same timer waiting, or a start of the same timer that
-  left less than a minute ago and is not seen on a read yet ("try again in a
-  minute").
+- Refused, nothing sent: the option off; the address of the configuration is
+  not the one of the gateway of the timer; a pause asked by the gateway; the
+  file `/data/linktap.json` unreadable or the start impossible to record in
+  it; another command of the same timer waiting; a start of the same timer
+  that left less than a minute ago and is not seen on a read yet ("try again
+  in a minute"); the state of the timer unreadable, or the timer not linked by
+  radio; cancelled by a stop of the timer; the configuration changed (another
+  address) meanwhile; not sent within 10 s of the click.
 - The gateway handles one request at a time: a start behind other requests (a
   scene starting five timers) may leave up to 10 s after the click; Gladys
-  then answers "queued". A stop of the same timer cancels it as long as it has
+  then answers "queued", and when it does not leave in time (or is refused),
+  the status says so. A stop of the same timer cancels it as long as it has
   not left.
 - A success is answered only when a read made after it shows the timer
   watering; otherwise "sent, without confirmation", then reads at 5, 15, 30
@@ -87,40 +94,55 @@ Stopping needs no permission and is **never held** by the option, a pause of
 the gateway, a recent start, a configuration Gladys has not given yet, nor by
 a read in progress: the stop goes ahead of every other request; the request
 in flight is cut to let it leave when it has been silent for 1 s, or the stop
-has waited 1.5 s. It cancels the start of
-the same timer not sent yet. Right after a restart, a stop works even before
-Gladys gives the configuration.
+has waited 1.5 s. It cancels the start of the same timer not sent yet. Right
+after a restart, a stop works even before Gladys gives the configuration.
 
 The stop is **refused unsent** only:
 
 - when this integration never read the water timer (it is not known);
 - when the gateway of the timer has no known address any more (another
-  gateway answered at its address).
+  gateway answered at its address);
+- when the button value is not a press.
 
 It is **sent then refused by the gateway** when the gateway does not know the
-timer (nothing to stop), or answers another error (format, parameter, command
-not supported).
+timer (nothing to stop, nothing sent again), or answers another error (format,
+parameter, command not supported).
 
-When it **cannot leave** (no connection, a busy gateway, HTTP 404), it is
-tried again 250 ms later within its 3 s; when it is still not taken (or
-another gateway answers at the address), Gladys sends it again at 5, 15, 30
-and 60 s (even during a pause) and after a restart, 3 times at most in all.
+When the gateway **does not take it** (no connection, a busy gateway, an HTTP
+error such as a 404, another gateway at the address), it is tried again 250 ms
+later within its 3 s, then **every 10 s, and at every read that reaches the
+gateway, until the gateway takes it**, even during a pause and after a
+restart. Only the resends that really leave are counted: 3 at most.
 
-After a stop taken by the gateway, a read still showing the timer watering
-(more than 4 s after) sends it again, 3 times at most. The watch of a stop is
-lifted only by a read showing the timer stopped followed by a watering started
-elsewhere (the app, the button, the plan) read twice in a row, or by a start
-from Gladys that leaves: **never by the time alone**. The status tells a
-watering that goes on after three resends.
+After a stop taken by the gateway, a read still showing **the same run**
+watering (more than 4 s after, the radio needs time) sends it again, within
+the same 3 resends. Only reads sent after the click count. A different run
+(its length changed, or its time left grew: started by the LinkTap app, the
+button or the plan) is never stopped by a resend.
+
+The watch of a stop is lifted only by:
+
+- a read showing the timer stopped, followed by a watering read twice in a
+  row (started elsewhere), or a different run read twice in a row;
+- a start from Gladys with the option on: one that leaves, or one that finds
+  the timer already watering;
+- the gateway answering that it does not know the timer.
+
+It is **never lifted by the time alone**. The status tells a stop not taken
+yet, and a watering that goes on after three resends.
 
 ## Pausing the plan
 
 The button pauses the watering plan of the timer for the configured length
 (24 h by default, 1 to 240 h). It does not need the start option. Gladys reads
 the timer first: already paused, nothing is sent (a second pause can switch
-the plan off, a known LinkTap issue); state unreadable, timer not linked, a
-pause asked by the gateway, or the address of the configuration not the one
-of its gateway: refused, nothing sent. Resuming the plan is done in the LinkTap app.
+the plan off, a known LinkTap issue). After a pause sent, another one is
+refused until a read shows the plan paused, 10 minutes at most (kept across a
+restart). Refused, nothing sent: state unreadable, timer not linked, a
+firmware that does not tell whether the plan is paused, a pause asked by the
+gateway, the address of the configuration not the one of its gateway,
+`/data` not writable, the configuration changed meanwhile, not sent within
+10 s of the click. Resuming the plan is done in the LinkTap app.
 
 ## "Check the gateway" button
 

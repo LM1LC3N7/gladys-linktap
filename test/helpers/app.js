@@ -90,15 +90,17 @@ export async function setup({
     configCalls: () => configCalls,
   };
   ctx.drive = (promise, max = 30_000) => drive(clock, promise, max);
-  ctx.press = (timerId, key) => {
+  /** A click, not driven: the promise of its ack. */
+  ctx.click = (timerId, key, value = 1) => {
     const device =
       gladys.fake.devices.find((d) => d.external_id === `ext:${SELECTOR}:linktap:${timerId}`) ??
       createdDevice(gladys, { id: timerId, name: '' });
     const feature = device.features.find((f) => f.external_id === F(timerId, key)) ?? {
       external_id: F(timerId, key),
     };
-    return ctx.drive(gladys.fake.setValue(device, feature, 1));
+    return gladys.fake.setValue(device, feature, value);
   };
+  ctx.press = (timerId, key, value = 1) => ctx.drive(ctx.click(timerId, key, value));
   if (connect) {
     await gladys.connect();
     if (start) {

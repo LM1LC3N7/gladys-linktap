@@ -66,21 +66,29 @@ l'ancienne passerelle sont refusées.
 - **Démarrer ouvre une vanne : c'est désactivé par défaut.** Activez
   **Autoriser le démarrage d'un arrosage** pour utiliser le bouton Démarrer.
   Sans cela, le tableau de bord, les scènes et les assistants vocaux peuvent
-  seulement lire, arrêter et mettre le programme en pause.
+  seulement lire, arrêter et mettre le programme en pause. Une configuration
+  enregistrée s'applique aux commandes tout de suite (une option décochée
+  bloque les démarrages dès cet instant, même pendant une lecture).
+- Gladys lit d'abord le programmateur : déjà en arrosage, rien n'est envoyé
+  (l'arrosage n'est jamais prolongé).
 - L'arrosage dure la durée réglée (15 minutes par défaut, **120 minutes au
   plus**, borne appliquée par Gladys) ; elle part dans la commande et le
   programmateur referme seul la vanne à la fin. Gladys n'envoie jamais un
   arrosage au volume.
-- Refusé, rien envoyé : option désactivée, adresse de la configuration qui
-  n'est pas celle de la passerelle du programmateur, pause demandée par la
-  passerelle, fichier `/data/linktap.json` illisible ou démarrage impossible à
-  y enregistrer, autre commande du même programmateur en attente, ou
+- Refusé, rien envoyé : option désactivée ; adresse de la configuration qui
+  n'est pas celle de la passerelle du programmateur ; pause demandée par la
+  passerelle ; fichier `/data/linktap.json` illisible ou démarrage impossible
+  à y enregistrer ; autre commande du même programmateur en attente ;
   démarrage du même programmateur parti il y a moins d'une minute et pas
-  encore vu à la lecture (« réessayez dans une minute »).
+  encore vu à la lecture (« réessayez dans une minute ») ; état du
+  programmateur illisible ou programmateur non relié par radio ; annulé par un
+  arrêt du programmateur ; configuration changée (autre adresse) entre-temps ;
+  pas parti dans les 10 s après le clic.
 - La passerelle traite une requête à la fois : un démarrage derrière d'autres
   requêtes (une scène qui démarre cinq programmateurs) peut partir jusqu'à
-  10 s après le clic ; Gladys répond alors « en file ». Un arrêt du même
-  programmateur l'annule tant qu'il n'est pas parti.
+  10 s après le clic ; Gladys répond alors « en file », et s'il ne part pas à
+  temps (ou s'il est refusé), le statut le dit. Un arrêt du même programmateur
+  l'annule tant qu'il n'est pas parti.
 - Le succès n'est répondu que si une lecture faite après montre le
   programmateur en arrosage ; sinon « envoyé, sans confirmation », puis de
   nouvelles lectures à 5, 15, 30 et 60 s.
@@ -92,34 +100,47 @@ l'option, une pause de la passerelle, un démarrage récent, une configuration
 pas encore lue depuis Gladys, ni par une lecture en cours : l'arrêt passe
 devant toutes les autres requêtes ; la requête en cours est coupée pour le
 laisser partir si elle est muette depuis 1 s, ou si l'arrêt attend depuis
-1,5 s. Il annule le démarrage du
-même programmateur pas encore envoyé. Juste après un redémarrage, un arrêt
-fonctionne avant même que Gladys ait donné la configuration.
+1,5 s. Il annule le démarrage du même programmateur pas encore envoyé. Juste
+après un redémarrage, un arrêt fonctionne avant même que Gladys ait donné la
+configuration.
 
 L'arrêt est **refusé sans envoi** seulement :
 
 - si le programmateur n'a jamais été lu par cette intégration (il n'est pas
   connu) ;
 - si la passerelle du programmateur n'a plus d'adresse connue (une autre
-  passerelle a répondu à son adresse).
+  passerelle a répondu à son adresse) ;
+- si la valeur du bouton n'est pas un appui.
 
 Il est **envoyé puis refusé par la passerelle** si elle ne connaît pas le
-programmateur (rien à arrêter), ou si elle répond une autre erreur (format,
-paramètre, commande non prise en charge).
+programmateur (rien à arrêter, rien n'est renvoyé), ou si elle répond une
+autre erreur (format, paramètre, commande non prise en charge).
 
-S'il **ne peut pas partir** (pas de connexion, passerelle occupée, HTTP 404),
-il est réessayé 250 ms après dans ses 3 s ; s'il n'est toujours pas pris (ou
-si une autre passerelle répond à l'adresse), Gladys le renvoie à 5, 15, 30 et
-60 s (même pendant une pause) et après un redémarrage, 3 fois au plus au
-total.
+Si la passerelle **ne le prend pas** (pas de connexion, passerelle occupée,
+erreur HTTP comme un 404, autre passerelle à l'adresse), il est réessayé
+250 ms après dans ses 3 s, puis **toutes les 10 s et à chaque lecture qui
+atteint la passerelle, jusqu'à ce qu'elle le prenne**, même pendant une pause
+et après un redémarrage. Seuls les renvois réellement partis comptent : 3 au
+plus.
 
-Après un arrêt pris par la passerelle, si une lecture montre encore le
-programmateur en arrosage (plus de 4 s après), l'arrêt est renvoyé, 3 fois au
-plus. La surveillance de l'arrêt n'est levée que par une lecture qui montre le
-programmateur arrêté, suivie d'un arrosage lancé ailleurs (application,
-bouton, programme) lu deux fois de suite, ou par un démarrage depuis Gladys
-qui part : **jamais par le temps seul**. Le statut signale un arrosage qui
-continue après trois renvois.
+Après un arrêt pris par la passerelle, une lecture qui montre encore **le
+même arrosage** en cours (plus de 4 s après : la radio a besoin de temps) le
+renvoie, dans les mêmes 3 renvois. Seules les lectures parties après le clic
+comptent. Un autre arrosage (sa durée a changé, ou son temps restant a
+augmenté : lancé par l'application LinkTap, le bouton ou le programme) n'est
+jamais coupé par un renvoi.
+
+La surveillance d'un arrêt n'est levée que par :
+
+- une lecture qui montre le programmateur arrêté, suivie d'un arrosage lu
+  deux fois de suite (lancé ailleurs), ou un autre arrosage lu deux fois de
+  suite ;
+- un démarrage depuis Gladys avec l'option : qui part, ou qui trouve le
+  programmateur déjà en arrosage ;
+- la passerelle qui répond ne pas connaître le programmateur.
+
+Elle n'est **jamais levée par le temps seul**. Le statut signale un arrêt pas
+encore pris, et un arrosage qui continue après trois renvois.
 
 ## Mettre le programme en pause
 
@@ -127,10 +148,14 @@ Le bouton met le programme d'arrosage du programmateur en pause pour la durée
 réglée (24 h par défaut, de 1 à 240 h). Il ne demande pas l'option de
 démarrage. Gladys lit d'abord le programmateur : déjà en pause, rien n'est
 envoyé (une seconde pause peut désactiver le programme, défaut connu de
-LinkTap) ; état illisible, programmateur non relié, pause demandée par la
-passerelle ou adresse de la configuration qui n'est pas celle de sa
-passerelle : refusé, rien envoyé.
-Reprendre le programme se fait dans l'application LinkTap.
+LinkTap). Après une pause envoyée, une autre est refusée jusqu'à ce qu'une
+lecture montre le programme en pause, 10 minutes au plus (gardé après un
+redémarrage). Refusé, rien envoyé : état illisible, programmateur non relié,
+micrologiciel qui ne dit pas si le programme est en pause, pause demandée par
+la passerelle, adresse de la configuration qui n'est pas celle de sa
+passerelle, `/data` non inscriptible, configuration changée entre-temps, pas
+partie dans les 10 s après le clic. Reprendre le programme se fait dans
+l'application LinkTap.
 
 ## Bouton « Vérifier la passerelle »
 
