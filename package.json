@@ -1,6 +1,6 @@
 {
   "name": "gladys-linktap",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Gladys Assistant external integration for LinkTap water timers (TapLinker, ValveLinker) through the local HTTP API of their gateway: watering, flow, volume, battery, start, stop, pause of the plan. Unofficial, not affiliated with LinkTap.",
   "type": "module",

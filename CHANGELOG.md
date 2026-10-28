@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-28
+
 ### Added
 
 - LinkTap water timers (TapLinker, ValveLinker) through the local HTTP API of
@@ -20,4 +22,5 @@ the notes of the version's GitHub Release.
   buttons; one request at a time to the gateway.
 - "Check the gateway" button; guides in French and English.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-linktap/commits/main
+[Unreleased]: https://github.com/LM1LC3N7/gladys-linktap/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-linktap/releases/tag/v0.1.1
