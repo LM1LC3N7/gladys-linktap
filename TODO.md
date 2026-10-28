@@ -2,6 +2,14 @@
 
 ## To confirm on a real gateway
 
+- [x] Review r4 (2026-10-28): APPROUVÉ, no blocker (4th round, rule of 5).
+- [ ] Next patch — review r4 leftovers: without a read before the click, an
+      app run seen on the first read is cut (safe side): check the age of that
+      read before taking it as the reference; a cached `remain_duration`
+      could lift the guard of a young run when the radio ignores the stop
+      (needs a real gateway; possible guard: require a countdown at real
+      pace); `noteLate` republishes the last watering value without checking
+      its age (`src/app.js:1340-1344`).
 - [ ] The answer of cmd 3 on the local HTTP API: flat (as the Home Assistant
       integration reads it) or under `dev_stat` (as the LinkTap protocol
       describes it)? Both are read; is `dev_id` always in it?
